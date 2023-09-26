@@ -2,7 +2,7 @@ package com.akdogan.zoomableimageview.zoomableImage
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
-import mutableState
+import com.akdogan.zoomableimageview.mutableState
 
 class TransformableEntityStateHolder {
 
