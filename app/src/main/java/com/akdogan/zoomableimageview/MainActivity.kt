@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -66,6 +67,19 @@ const val snapZoomRange = 0.2f
 //
 //}
 
+
+enum class MoveDirection {START, TOP, END, BOTTOM}
+
+fun Offset.doesItMoveTo(direction: MoveDirection): Boolean {
+    return when (direction) {
+        MoveDirection.START -> this.x < 0
+        MoveDirection.TOP -> this.y < 0
+        MoveDirection.END -> this.x > 0
+        MoveDirection.BOTTOM -> this.y > 0
+    }
+}
+
+
 class TransformableEntityStateHolder(
 
 ) {
@@ -80,6 +94,12 @@ class TransformableEntityStateHolder(
             _size.value = value
         }
 
+    private val _containerSize: MutableState<IntSize> = mutableStateOf(IntSize.Zero)
+    var containerSize: IntSize
+        get() = _containerSize.value
+        set(value) {
+            _containerSize.value = value
+        }
 
     private val _scale: MutableState<Float> = mutableStateOf(1f)
     var scale: Float
@@ -107,76 +127,102 @@ class TransformableEntityStateHolder(
     val scaledHalfHeight: Float
         get() = size.height / 2 * scale
 
+    val widerThanParent: Boolean
+        get() = size.width * scale > containerSize.width
+
+    val higherThanParent: Boolean
+        get() = size.height * scale > containerSize.height
 }
 
 @Composable
 fun ZoomableImageView() {
+    val entity = remember {
+        TransformableEntityStateHolder()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(Color.Black)
+            .onGloballyPositioned {
+                val newSize = it.size
+                if (newSize != entity.containerSize) {
+                    log("onGloballyPositioned container size: ${newSize}")
+                    entity.containerSize = newSize
+                }
+            },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
 
-        val entity = remember {
-            TransformableEntityStateHolder()
-        }
 
         val state = rememberTransformableState { zoomChange, offsetChange, _ ->
             val newScale = entity.scale * zoomChange
+            // don't allow zooming below min or above max
             entity.scale = when {
                 newScale > maxZoom -> maxZoom
                 newScale < minZoom -> minZoom
                 else -> newScale
             }
 
-            if (entity.scale in minZoom..maxZoom) {
+            // only allow scrolling if the image is zoomed
+            if (entity.scale > minZoom) {
                 var newOffset = entity.offset + offsetChange * entity.scale
 
-                // Should block towards start
-                val calculatedDistanceFromStart = entity.offset.x + entity.halfWidth
-                val doesItTouchStart = calculatedDistanceFromStart >= entity.scaledHalfWidth
-                val doesItMoveTowardsEnd = offsetChange.x < 0
+                if (entity.higherThanParent) {
+                    // Prevent top of image scrolling away from top of parent
+                    val calculatedDistanceFromTop = entity.offset.y + entity.containerSize.height / 2
+                    val doesItTouchTop = calculatedDistanceFromTop >= entity.scaledHalfHeight
+                    val doesItMoveTowardsBottom = offsetChange.y < 0
 
-                if (doesItTouchStart && !doesItMoveTowardsEnd) {
-                    val xOffset = entity.scaledHalfWidth - entity.halfWidth
-                    newOffset = newOffset.copy(x = xOffset)
+                    if (doesItTouchTop && offsetChange.doesItMoveTo(MoveDirection.BOTTOM)) {
+                        val yOffset = (entity.scaledHalfHeight - entity.containerSize.height / 2)
+                        newOffset = newOffset.copy(y = yOffset)
+                    }
+
+                    // prevent bottom of image scrolling away from bottom of parent
+                    val calculatedDistanceFromBottom =
+                        (entity.offset.y - entity.containerSize.height / 2).absoluteValue
+                    val doesItTouchBottom = calculatedDistanceFromBottom >= entity.scaledHalfHeight
+                    val doesItMoveTowardsTop = offsetChange.y > 0
+
+                    if (doesItTouchBottom && offsetChange.doesItMoveTo(MoveDirection.TOP)) {
+                        val yOffset = (entity.scaledHalfHeight - entity.containerSize.height / 2) * -1
+                        newOffset = newOffset.copy(y = yOffset)
+                    }
+
+                } else {
+                    // if the image is smaller than parent, block vertical scrolling
+                    newOffset = newOffset.copy(y = entity.offset.y)
                 }
 
-                // Should block towards end
-                val calculatedDistanceFromEnd = (entity.offset.x - entity.halfWidth).absoluteValue
-                val doesItTouchEnd = calculatedDistanceFromEnd >= entity.scaledHalfWidth
-                val doesItMoveTowardsStart = offsetChange.x > 0
+                if (entity.widerThanParent) {
 
-                if (doesItTouchEnd && !doesItMoveTowardsStart) {
-                    val xOffset = (entity.scaledHalfWidth - entity.halfWidth) * -1
-                    newOffset = newOffset.copy(x = xOffset)
+                    // Prevent start of image scrolling away from start of parent
+                    val calculatedDistanceFromStart = entity.offset.x + entity.containerSize.width / 2
+                    val doesItTouchStart = calculatedDistanceFromStart >= entity.scaledHalfWidth
+
+                    if (doesItTouchStart && offsetChange.doesItMoveTo(MoveDirection.END)) {
+                        val xOffset = entity.scaledHalfWidth - entity.containerSize.width / 2
+                        newOffset = newOffset.copy(x = xOffset)
+                    }
+
+                    // Prevent end of image scrolling away from end of parent
+                    val calculatedDistanceFromEnd = (entity.offset.x - entity.containerSize.width / 2).absoluteValue
+                    val doesItTouchEnd = calculatedDistanceFromEnd >= entity.scaledHalfWidth
+                    val doesItMoveTowardsStart = offsetChange.x > 0
+
+                    if (doesItTouchEnd && offsetChange.doesItMoveTo(MoveDirection.START)) {
+                        val xOffset = (entity.scaledHalfWidth - entity.halfWidth) * -1
+                        newOffset = newOffset.copy(x = xOffset)
+                    }
+
+                } else {
+                    // if the image is smaller than parent, block horzizontal scrolling
+                    newOffset = newOffset.copy(x = entity.offset.x)
                 }
 
-                // Should block towards top
-                val calculatedDistanceFromTop = entity.offset.y + entity.halfHeight
-                val doesItTouchTop = calculatedDistanceFromTop >= entity.scaledHalfHeight
-                val doesItMoveTowardsBottom = offsetChange.y < 0
-
-                if (doesItTouchTop && !doesItMoveTowardsBottom) {
-                    val yOffset = (entity.scaledHalfHeight - entity.halfHeight)
-                    newOffset = newOffset.copy(y = yOffset)
-                }
-
-                // Should block towards bottom
-                val calculatedDistanceFromBottom =
-                    (entity.offset.y - entity.halfHeight).absoluteValue
-                val doesItTouchBottom = calculatedDistanceFromBottom >= entity.scaledHalfHeight
-                val doesItMoveTowardsTop = offsetChange.y > 0
-
-                if (doesItTouchBottom && !doesItMoveTowardsTop) {
-                    val yOffset = (entity.scaledHalfHeight - entity.halfHeight) * -1
-                    newOffset = newOffset.copy(y = yOffset)
-                }
-
-                log("offset=${entity.offset} -- offSetChange=$offsetChange -- newOffset=$newOffset")
-
+                log("offset=${entity.offset} -- scaledOffset=${entity.offset * entity.scale} -- offSetChange=$offsetChange -- newOffset=$newOffset")
                 entity.offset = newOffset
             }
         }
@@ -185,7 +231,6 @@ fun ZoomableImageView() {
         LaunchedEffect(key1 = state.isTransformInProgress) {
             val shouldSnapToMinZoom = entity.scale - minZoom <= snapZoomRange
             if (!state.isTransformInProgress && shouldSnapToMinZoom) {
-//                   todo state.animateZoomBy()
                 entity.scale = minZoom
                 entity.offset = Offset.Zero
             }
@@ -202,13 +247,12 @@ fun ZoomableImageView() {
                 .onGloballyPositioned {
                     val newSize = it.size
                     if (newSize != entity.size) {
-                        log("onGloballyPositioned size: ${it.size}")
-                        entity.size = it.size
+                        log("onGloballyPositioned size: $newSize")
+                        entity.size = newSize
                     }
                 }
-                .transformable(state = state)
-                .fillMaxSize(),
-            painter = painterResource(id = R.drawable.testportrait),
+                .transformable(state = state),
+            painter = painterResource(id = R.drawable.testimage),
             contentDescription = null,
         )
     }
