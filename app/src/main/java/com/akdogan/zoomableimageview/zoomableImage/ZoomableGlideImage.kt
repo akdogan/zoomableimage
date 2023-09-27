@@ -21,7 +21,7 @@ import kotlin.math.absoluteValue
 
 @ExperimentalGlideComposeApi
 @Composable
-fun ZoomableImageView(
+fun ZoomableGlideImage(
     url: String,
     maxZoom: Float = 6f,
     minZoom: Float = 1f,

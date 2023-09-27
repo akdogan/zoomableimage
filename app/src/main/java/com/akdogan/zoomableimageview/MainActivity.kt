@@ -8,7 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.akdogan.zoomableimageview.ui.theme.ZoomableImageViewTheme
-import com.akdogan.zoomableimageview.zoomableImage.ZoomableImageView
+import com.akdogan.zoomableimageview.zoomableImage.ZoomableGlideImage
 import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 
 
@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    ZoomableImageView(portraitPicture)
+                    ZoomableGlideImage(portraitPicture)
                 }
             }
         }
